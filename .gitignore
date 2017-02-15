@@ -1,0 +1,12 @@
+# Compiled files
+
+# IDE
+.idea/
+
+*.pem
+
+# Emacs
+*~
+
+node_modules/
+modules/
