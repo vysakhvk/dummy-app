@@ -1,0 +1,378 @@
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: "Github configuration"
+        Parameters:
+          - GitHubRepo
+          - GitHubBranch
+          - GitHubToken
+          - GitHubUser
+      - Label:
+          default: "S3 Bucket for Lambda Function"
+        Parameters:
+          - S3BucketName
+          - S3BucketKey
+      - Label:
+          default: "EC2 Container Service"
+        Parameters:
+          - VpcId
+          - PublicSubnetAZ1
+          - PublicSubnetAZ2
+          - ECSClusterName
+          - ECSRespositoryName
+          - ECSRegion
+          - SourceECSAWSAccountId
+          - SourceECSRegion
+          - SourceTag
+      - Label:
+          default: "Release Details"
+        Parameters:
+          - ReleaseVersion
+          - DeployEnvironment
+
+Parameters:
+  GitHubRepo:
+    Type: String
+    Description: Github repo name (e.g. github.com/Org/RepoName then RepoName)
+  GitHubBranch:
+    Type: String
+    Default: 'master'
+    Description: The github branch to monitor for changes.
+  GitHubToken:
+    Type: String
+    Description: The Github Token which has access to the repository.
+  GitHubUser:
+    Type: String
+    Description: The Github User/Organisation under which the repository is hosted.
+  TagName:
+    Type: String
+    Description: Tag name for the cloudformation stack
+  ECSRespositoryName:
+    Type: String
+    Description: ECS Respository Name (If URI is xxx.dkr.ecr.us-east-1.amazonaws.com/nginx, then nginx)
+  ECSClusterName:
+    Type: String
+  ECSRegion:
+    Type: String
+    Description: Region containing the ECS Cluster.
+  SourceECSAWSAccountId:
+    Type: String
+    Description: (Production Only) AWS Account Id of the Staging ECS Cluster
+  SourceECSRegion:
+    Type: String
+    Description: (Production Only) Region containing the Staging ECS Cluster
+  SourceTag:
+    Type: String
+    Description: (Production Only) Tag of the Staging ECR Image to be deployed
+  S3BucketName:
+    Type: String
+    Description: S3 Bucket which contains the Lambda function
+  S3BucketKey:
+    Type: String
+    Description: Eg lambdafunction.zip
+    Default: lambdafunction.zip
+  PublicSubnetAZ1:
+    Description: Public Subnet ID in Availability Zone 1 of ECS Cluster.
+    Type: String
+  PublicSubnetAZ2:
+    Description: Public Subnet ID in Availability Zone 2 of ECS Cluster.
+    Type: String
+  VpcId:
+    Type: String
+    Description: Provide the VPC ID of ECS Cluster.
+  ReleaseVersion:
+    Type: String
+    Description: Application version to be released/ FeatureId incase of feature CodePipeline. This will be appended to the docker image tag.
+  DeployEnvironment:
+    Type: String
+    Description: Specify the environment
+    AllowedValues:
+      - production
+      - staging
+      - hotfix
+      - development
+      - feature
+    ConstraintDescription: Must specify production, staging, hotfix, development or feature.
+
+Mappings:
+  DockerTagPhraseFromEnv:
+    production:
+      value: ""
+    staging:
+      value: "candidate"
+    hotfix:
+      value: "hotfix"
+    development:
+      value: "snapshot"
+    feature:
+      value: "feature"
+Conditions:
+  IsProductionCondition: !Equals [ !Ref DeployEnvironment, production ]
+  IsStagingCondition: !Equals [ !Ref DeployEnvironment, staging ]
+  IsHotfixCondition: !Equals [ !Ref DeployEnvironment, hotfix ]
+  IsDevelopmentCondition: !Equals [ !Ref DeployEnvironment, development ]
+  IsFeatureCondition: !Equals [ !Ref DeployEnvironment, feature ]
+
+Resources:
+  CloudFormationExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub cfn-${TagName}
+      Path: /
+      AssumeRolePolicyDocument: |
+        {
+            "Statement": [{
+                "Effect": "Allow",
+                "Principal": { "Service": [ "cloudformation.amazonaws.com" ]},
+                "Action": [ "sts:AssumeRole" ]
+            }]
+        }
+      Policies:
+        - PolicyName: root
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Resource: "*"
+                Effect: Allow
+                Action:
+                  - ecs:*
+                  - ecr:*
+                  - iam:*
+
+  CodeBuildServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub cb-${TagName}
+      Path: /
+      AssumeRolePolicyDocument:
+        Statement:
+          -
+            Effect: "Allow"
+            Principal:
+              Service:
+                - "codebuild.amazonaws.com"
+              AWS:
+                - !If [IsProductionCondition, !Sub "arn:aws:iam::${SourceECSAWSAccountId}:root", !Ref "AWS::NoValue"]
+            Action:
+              - "sts:AssumeRole"
+      Policies:
+        - PolicyName: root
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Resource: "*"
+                Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                  - ecr:GetAuthorizationToken
+              - Resource: !Sub arn:aws:s3:::${ArtifactBucket}/*
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:GetObjectVersion
+              - Resource: "*"
+                Effect: Allow
+                Action:
+                  - ecr:*
+
+  CodePipelineServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub cp-${TagName}
+      Path: /
+      AssumeRolePolicyDocument: |
+        {
+            "Statement": [{
+                "Effect": "Allow",
+                "Principal": { "Service": [ "codepipeline.amazonaws.com" ]},
+                "Action": [ "sts:AssumeRole" ]
+            }]
+        }
+      Policies:
+        - PolicyName: root
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Resource:
+                  - !Sub arn:aws:s3:::${ArtifactBucket}/*
+                Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                  - s3:GetBucketVersioning
+              - Resource: "*"
+                Effect: Allow
+                Action:
+                  - codebuild:StartBuild
+                  - codebuild:BatchGetBuilds
+                  - cloudformation:*
+                  - iam:PassRole
+                  - lambda:*
+
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub lambda-${TagName}
+      Path: /
+      AssumeRolePolicyDocument: |
+        {
+            "Statement": [{
+                "Effect": "Allow",
+                "Principal": { "Service": [ "lambda.amazonaws.com" ]},
+                "Action": [ "sts:AssumeRole" ]
+            }]
+        }
+      Policies:
+        - PolicyName: root
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Resource: "*"
+                Effect: Allow
+                Action:
+                  - s3:*
+                  - autoscaling:Describe*
+                  - autoscaling:UpdateAutoScalingGroup
+                  - cloudformation:CreateStack
+                  - cloudformation:DeleteStack
+                  - cloudformation:DescribeStack*
+                  - cloudformation:UpdateStack
+                  - cloudwatch:GetMetricStatistics
+                  - ec2:Describe*
+                  - elasticloadbalancing:*
+                  - ecs:*
+                  - iam:*
+                  - codepipeline:*
+                  - logs:*
+
+  ArtifactBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+
+  CodeBuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Artifacts:
+        Location: !Ref ArtifactBucket
+        Type: "S3"
+      Source:
+        Location: !Sub ${ArtifactBucket}/source.zip
+        Type: "GITHUB"
+      Environment:
+        ComputeType: "BUILD_GENERAL1_LARGE"
+        Image: "aws/codebuild/docker:1.12.1"
+        Type: "LINUX_CONTAINER"
+        EnvironmentVariables:
+          - Name: AWS_ACCOUNT_ID
+            Value: !Ref AWS::AccountId
+          - Name: AWS_REGION
+            Value: !Ref ECSRegion
+          - Name: ECR_NAME
+            Value: !Ref ECSRespositoryName
+          - Name: SOURCE_AWS_ACCOUNT_ID
+            Value: !Ref SourceECSAWSAccountId
+          - Name: SOURCE_AWS_REGION
+            Value: !Ref SourceECSRegion
+          - Name: SOURCE_TAG
+            Value: !Ref SourceTag
+          - Name: GITHUB_TOKEN
+            Value: !Ref GitHubToken
+          - Name: ECS_CLUSTER_NAME
+            Value: !Ref ECSClusterName
+          - Name: PUBLIC_SUBNET_AZ1
+            Value: !Ref PublicSubnetAZ1
+          - Name: PUBLIC_SUBNET_AZ2
+            Value: !Ref PublicSubnetAZ2
+          - Name: VPC_ID
+            Value: !Ref VpcId
+          - Name: RELEASE_VERSION
+            Value: !Ref ReleaseVersion
+          - Name: DEPLOY_ENVIRONMENT
+            Value: !Ref DeployEnvironment
+          - Name: BUILD_SCOPE
+            Value: !FindInMap [DockerTagPhraseFromEnv, !Ref DeployEnvironment, value]
+          - Name: TAG_NAME
+            Value: !Ref TagName
+      ServiceRole: !Ref CodeBuildServiceRole
+
+  LambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Code:
+        S3Bucket: !Ref S3BucketName
+        S3Key: !Ref S3BucketKey
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Runtime: nodejs4.3
+      Timeout: 20
+  Pipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      RoleArn: !GetAtt CodePipelineServiceRole.Arn
+      ArtifactStore:
+        Type: S3
+        Location: !Ref ArtifactBucket
+      Stages:
+        - Name: Source
+          Actions:
+            - Name: App
+              ActionTypeId:
+                Category: Source
+                Owner: ThirdParty
+                Version: 1
+                Provider: GitHub
+              Configuration:
+                Owner: !Ref GitHubUser
+                Repo: !Ref GitHubRepo
+                Branch: !Ref GitHubBranch
+                OAuthToken: !Ref GitHubToken
+              OutputArtifacts:
+                - Name: App
+              RunOrder: 1
+        - Name: Build
+          Actions:
+            - !If
+              - IsProductionCondition
+              - Name: ManualApproval
+                ActionTypeId:
+                  Category: Approval
+                  Owner: AWS
+                  Version: 1
+                  Provider: Manual
+                RunOrder: 2
+              - !Ref AWS::NoValue
+            - Name: Build
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Version: 1
+                Provider: CodeBuild
+              Configuration:
+                ProjectName: !Ref CodeBuildProject
+              InputArtifacts:
+                - Name: App
+              OutputArtifacts:
+                - Name: BuildOutput
+              RunOrder: 3
+        - Name: Deploy
+          Actions:
+            - Name: Deploy
+              ActionTypeId:
+                Category: Invoke
+                Owner: AWS
+                Version: 1
+                Provider: Lambda
+              Configuration:
+                FunctionName: !Ref LambdaFunction
+              InputArtifacts:
+                - Name: BuildOutput
+              RunOrder: 4
+
+Outputs:
+  PipelineUrl:
+    Value: !Sub https://console.aws.amazon.com/codepipeline/home?region=${AWS::Region}#/view/${Pipeline}

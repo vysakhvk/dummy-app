@@ -1,0 +1,8 @@
+{
+  "Parameters" : {
+    "EnvironmentName" : "Dev",
+    "DesiredCount" : "2",
+    "ProductServiceUrl" : "/products",
+    "Path" : "/"
+  }
+}
