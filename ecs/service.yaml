@@ -4,29 +4,17 @@ Parameters:
     Type: String
     Description: Tag of the Docker Image.
     Default: TAG
-  ECSClusterName:
+  EnvironmentName:
     Type: String
-    Description: Name of an existing ECS Cluster.
-    Default: ECS_CLUSTER_NAME
-  PublicSubnetAZ1:
-    Description: Public Subnet ID in Availability Zone 1.
-    Type: String
-    Default: PUBLIC_SUBNET_AZ1
-  PublicSubnetAZ2:
-    Description: Public Subnet ID in Availability Zone 2.
-    Type: String
-    Default: PUBLIC_SUBNET_AZ2
-  VpcId:
-    Type: String
-    Description: Provide the VPC ID.
-    Default: VPC_ID
+    Description: Name of the Environment.
+    Default: ENVIRONMENT_NAME
 
 Resources:
   TaskDefinition:
     Type: AWS::ECS::TaskDefinition
     Properties:
       #The Family name will be used along with ECS_CLUSTER_NAME to prepare the stack name. It should be of Format abb-cdd-sd
-      Family: Nginx
+      Family: Nginx-BUILD_SCOPE
       ContainerDefinitions:
       - Name: Nginx
         Cpu: '10'
@@ -58,8 +46,10 @@ Resources:
         - Key: idle_timeout.timeout_seconds
           Value: '30'
       Subnets:
-        - Ref:  PublicSubnetAZ1
-        - Ref:  PublicSubnetAZ2
+        - Fn::ImportValue:
+            !Sub "${EnvironmentName}-PublicSubnet1"
+        - Fn::ImportValue:
+            !Sub "${EnvironmentName}-PublicSubnet2"
 
   ALBListener:
     Type: AWS::ElasticLoadBalancingV2::Listener
@@ -101,7 +91,8 @@ Resources:
       Protocol: HTTP
       UnhealthyThresholdCount: 2
       VpcId:
-        Ref: VpcId
+        Fn::ImportValue:
+            !Sub "${EnvironmentName}-VPC"
   ECSServicePolicy:
     Type: "AWS::IAM::Policy"
     Properties:
