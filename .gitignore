@@ -1,5 +1,2 @@
-# Compiled files
-*.tfstate
-*.tfstate.backup
 # IDE
 .idea/
