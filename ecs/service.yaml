@@ -109,7 +109,9 @@ Resources:
     Type: AWS::ECS::Service
     DependsOn: ECSServicePolicy
     Properties:
-      Cluster: ECS_CLUSTER_NAME
+      Cluster:
+        Fn::ImportValue:
+          Fn::Sub: "${EnvironmentName}-ECSCluster"
       DesiredCount: '1'
       TaskDefinition:
         Ref: TaskDefinition
