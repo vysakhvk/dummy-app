@@ -21,7 +21,7 @@ Resources:
         Essential: 'true'
         Image:
           "Fn::Sub":
-            - '${AccountId}.dkr.ecr.${Region}.amazonaws.com/nginx:TAG'
+            - '${AccountId}.dkr.ecr.${Region}.amazonaws.com/dummy-app:TAG'
             - { AccountId: { "Ref" : "AWS::AccountId" }, Region: { "Ref" : "AWS::Region" }}
         Memory: '128'
         PortMappings:
