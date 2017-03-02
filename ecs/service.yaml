@@ -40,7 +40,8 @@ Resources:
   ALB:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
     Properties:
-      Name: !Sub "${EnvironmentName}-Nginx-ALB"
+      Name: 
+        Fn::Sub: "${EnvironmentName}-Nginx-ALB"
       Scheme: internet-facing
       LoadBalancerAttributes:
         - Key: idle_timeout.timeout_seconds
