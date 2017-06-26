@@ -5,7 +5,6 @@
 4. ECS_CLUSTER_NAME
 
 
-
 #### Environment variable for Lambda
 
 
